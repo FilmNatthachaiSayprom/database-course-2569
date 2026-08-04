@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>สนาม - ระบบจองสนามแบดมินตัน</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+<style>
+body{background:#f3f5f7}
+.sidebar{min-height:100vh;background:#198754}
+.sidebar a{display:block;color:#fff;text-decoration:none;padding:12px}
+.sidebar a:hover{background:#157347}
+.sidebar a.active{background:#0f5132;font-weight:bold}
+.section,.card{border:none;border-radius:15px;box-shadow:0 3px 10px rgba(0,0,0,.1)}
+.section{background:#fff;padding:20px;margin:25px 0}
+.badge-status-ok{background:#198754}
+.badge-status-bad{background:#dc3545}
+</style>
+</head>
+<body>
+<nav class="navbar navbar-dark bg-success">
+<div class="container-fluid">
+<span class="navbar-brand">🏸 ระบบจองสนามแบดมินตัน</span>
+</div>
+</nav>
+
+<div class="container-fluid">
+<div class="row">
+<div class="col-md-2 sidebar p-0">
+<h4 class="text-white text-center py-3">MENU</h4>
+<a href="index.html">Dashboard</a>
+<a href="customers.html">ลูกค้า</a>
+<a href="courts.html" class="active">สนาม</a>
+<a href="bookings.html">การจอง</a>
+<a href="payments.html">ชำระเงิน</a>
+</div>
+
+<div class="col-md-10 p-4">
+<div class="section">
+<h3>🏸 จัดการสนาม</h3>
+<div class="row g-2">
+<div class="col"><input id="courtName" class="form-control" placeholder="ชื่อสนาม"></div>
+<div class="col">
+<select id="courtType" class="form-select">
+<option value="พื้นยาง">พื้นยาง</option>
+<option value="พื้นไม้">พื้นไม้</option>
+</select>
+</div>
+<div class="col"><input id="courtPrice" type="number" class="form-control" placeholder="ราคาต่อชั่วโมง"></div>
+<div class="col">
+<select id="courtStatus" class="form-select">
+<option value="ว่าง">ว่าง</option>
+<option value="ซ่อม">ซ่อม</option>
+</select>
+</div>
+<div class="col-auto"><button class="btn btn-success" type="button" onclick="addCourt()">เพิ่ม</button></div>
+</div>
+
+<table class="table table-striped mt-3">
+<thead><tr><th>ID</th><th>ชื่อสนาม</th><th>ประเภท</th><th>ราคา/ชม.</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+<tbody id="courtTable"></tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+<div class="modal-dialog">
+<div class="modal-content">
+<div class="modal-header">
+<h5 class="modal-title" id="editModalTitle">แก้ไขข้อมูล</h5>
+<button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body" id="editModalBody"></div>
+<div class="modal-footer">
+<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+<button type="button" class="btn btn-success" id="editModalSaveBtn">บันทึก</button>
+</div>
+</div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://tfwtvgjderlkqdnxpzkn.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_WJuURBkSedB8D4Cv6eGQ_g_l20bBrWW";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let editModalInstance;
+let allCourts = [];
+
+document.addEventListener("DOMContentLoaded", () => {
+  editModalInstance = new bootstrap.Modal(document.getElementById("editModal"));
+});
+
+function openEditModal(title, fields, onSave) {
+  document.getElementById("editModalTitle").innerText = title;
+  const body = document.getElementById("editModalBody");
+  body.innerHTML = fields.map(f => {
+    if (f.type === "select") {
+      const opts = f.options.map(o =>
+        `<option value="${o.value}" ${o.value === f.value ? "selected" : ""}>${o.label}</option>`
+      ).join("");
+      return `<div class="mb-2"><label class="form-label">${f.label}</label>
+        <select class="form-select" id="edit_${f.id}">${opts}</select></div>`;
+    }
+    return `<div class="mb-2"><label class="form-label">${f.label}</label>
+      <input class="form-control" id="edit_${f.id}" type="${f.type || "text"}" value="${f.value ?? ""}"></div>`;
+  }).join("");
+
+  const saveBtn = document.getElementById("editModalSaveBtn");
+  const newBtn = saveBtn.cloneNode(true);
+  saveBtn.parentNode.replaceChild(newBtn, saveBtn);
+
+  newBtn.addEventListener("click", async () => {
+    const values = {};
+    fields.forEach(f => { values[f.id] = document.getElementById(`edit_${f.id}`).value; });
+    await onSave(values);
+    editModalInstance.hide();
+  });
+
+  editModalInstance.show();
+}
+
+async function loadCourts() {
+  const { data, error } = await db
+    .from("courts")
+    .select("court_id, court_name, court_type, price_per_hour, status")
+    .order("court_id", { ascending: true });
+
+  if (error) { alert(error.message); return; }
+  allCourts = data;
+
+  document.getElementById("courtTable").innerHTML = data.map(item => `
+    <tr>
+      <td>${item.court_id}</td>
+      <td>${item.court_name}</td>
+      <td>${item.court_type}</td>
+      <td>${item.price_per_hour}</td>
+      <td><span class="badge ${item.status === "ว่าง" ? "badge-status-ok" : "badge-status-bad"}">${item.status}</span></td>
+      <td>
+        <button class="btn btn-primary btn-sm" type="button" onclick="editCourt(${item.court_id})">แก้ไข</button>
+        <button class="btn btn-danger btn-sm" type="button" onclick="deleteCourt(${item.court_id})">ลบ</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+async function addCourt() {
+  const court_name = document.getElementById("courtName").value.trim();
+  const court_type = document.getElementById("courtType").value;
+  const price = document.getElementById("courtPrice").value;
+  const status = document.getElementById("courtStatus").value;
+
+  if (!court_name || !price) { alert("กรุณากรอกชื่อสนามและราคา"); return; }
+
+  const { error } = await db.from("courts").insert({
+    court_name, court_type, price_per_hour: Number(price), status
+  });
+  if (error) { alert("เพิ่มไม่สำเร็จ: " + error.message); return; }
+
+  document.getElementById("courtName").value = "";
+  document.getElementById("courtPrice").value = "";
+  loadCourts();
+}
+
+function editCourt(court_id) {
+  const c = allCourts.find(x => x.court_id === court_id);
+  if (!c) return;
+  openEditModal("แก้ไขสนาม", [
+    { id: "court_name", label: "ชื่อสนาม", value: c.court_name },
+    { id: "court_type", label: "ประเภท", value: c.court_type, type: "select",
+      options: [{ value: "พื้นยาง", label: "พื้นยาง" }, { value: "พื้นไม้", label: "พื้นไม้" }] },
+    { id: "price", label: "ราคา", value: c.price_per_hour, type: "number" },
+    { id: "status", label: "สถานะ", value: c.status, type: "select",
+      options: [{ value: "ว่าง", label: "ว่าง" }, { value: "ซ่อม", label: "ซ่อม" }] },
+  ], async (v) => {
+    if (!v.court_name || !v.price) { alert("กรุณากรอกชื่อสนามและราคา"); return; }
+    const { error } = await db.from("courts")
+      .update({ court_name: v.court_name, court_type: v.court_type, price_per_hour: Number(v.price), status: v.status })
+      .eq("court_id", court_id);
+    if (error) { alert("แก้ไขไม่สำเร็จ: " + error.message); return; }
+    loadCourts();
+  });
+}
+
+async function deleteCourt(court_id) {
+  if (!confirm(`ยืนยันลบ court_id = ${court_id} ?`)) return;
+  const { error } = await db.from("courts").delete().eq("court_id", court_id);
+  if (error) { alert("ลบไม่สำเร็จ: " + error.message); return; }
+  loadCourts();
+}
+
+window.addCourt = addCourt;
+window.editCourt = editCourt;
+window.deleteCourt = deleteCourt;
+
+loadCourts();
+</script>
+</body>
+</html>
